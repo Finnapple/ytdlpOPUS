@@ -13,11 +13,11 @@ import unicodedata
 import traceback
 from datetime import datetime
 
-class YouTubeMusicOpusDownloader:
+class UniversalAudioDownloader:
     def __init__(self):
         # Set output directory to the same folder as the script
         script_dir = Path(__file__).parent.absolute()
-        self.output_dir = script_dir / "YouTube Music Downloads"
+        self.output_dir = script_dir / "Audio Downloads"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Get the Python executable path (for virtual environment)
@@ -54,7 +54,6 @@ class YouTubeMusicOpusDownloader:
         
         for venv_python in venv_paths:
             if venv_python.exists():
-                # REMOVED: print(f"[*] Using venv Python: {venv_python}")
                 return str(venv_python)
         
         # If no venv found, use system Python
@@ -127,10 +126,13 @@ class YouTubeMusicOpusDownloader:
         print(r" |___/           |_|    ")
         print("     Developed by: @Finnapple")
         print()
-        print("[*] YouTube Music Downloader - Pure Opus Edition")
-        print("[*] Download original Opus audio from YouTube Music")
-        print("[*] Supports: Single tracks, Playlists, and Albums")
-        print("[*] Paste YouTube Music URLs. Type 'exit' to quit.")
+        print("[*] Universal Audio Downloader - Highest Quality (No Album Art)")
+        print("[*] Download highest quality audio from:")
+        print("[*] • SoundCloud")
+        print("[*] • YouTube Music")
+        print("[*] • YouTube")
+        print("[*] • And more...")
+        print("[*] Paste any audio URL. Type 'exit' to quit.")
         print(f"[*] Downloading to: {self.output_dir}")
         if self.ffmpeg_path:
             print(f"[*] FFmpeg: Found")
@@ -217,34 +219,40 @@ class YouTubeMusicOpusDownloader:
         if self.failed_downloads:
             self.show_failed_downloads_summary("After retry")
     
-    def create_safe_filename(self, title: str) -> str:
-        """Create a safe filename using only the song title"""
+    def create_safe_filename(self, title: str, artist: str = "") -> str:
+        """Create a safe filename using title and artist"""
         if not title or title == 'Unknown':
-            return "unknown_track.opus"
+            return "unknown_track.mp3"
+        
+        # Combine artist and title if both exist
+        if artist and artist != 'Unknown Artist' and artist != 'Unknown':
+            filename = f"{artist} - {title}"
+        else:
+            filename = title
         
         # Remove invalid filename characters
         invalid_chars = '<>:"/\\|?*'
         for char in invalid_chars:
-            title = title.replace(char, '_')
+            filename = filename.replace(char, '_')
         
         # Remove control characters
-        title = ''.join(char for char in title if ord(char) >= 32)
+        filename = ''.join(char for char in filename if ord(char) >= 32)
         
         # Normalize unicode characters
-        title = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode('ascii')
+        filename = unicodedata.normalize('NFKD', filename).encode('ascii', 'ignore').decode('ascii')
         
         # Replace multiple spaces with single space
-        title = re.sub(r'\s+', ' ', title)
+        filename = re.sub(r'\s+', ' ', filename)
         
         # Trim whitespace
-        title = title.strip()
+        filename = filename.strip()
         
-        # If title is too long, truncate it
-        if len(title) > 100:
-            title = title[:100] + "..."
+        # If filename is too long, truncate it
+        if len(filename) > 150:
+            filename = filename[:150] + "..."
         
-        # Just the title, no track numbers
-        filename = f"{title}.opus"
+        # Add extension
+        filename = f"{filename}.mp3"
         
         return filename
 
@@ -276,8 +284,28 @@ class YouTubeMusicOpusDownloader:
         
         return name
 
-    def get_video_info(self, url: str) -> Optional[Dict]:
-        """Get video info using python -m yt_dlp --dump-json"""
+    def detect_platform(self, url: str) -> str:
+        """Detect which platform the URL is from"""
+        url_lower = url.lower()
+        
+        if 'soundcloud.com' in url_lower:
+            return 'soundcloud'
+        elif 'youtube.com' in url_lower or 'youtu.be' in url_lower:
+            if 'music.youtube.com' in url_lower:
+                return 'youtube_music'
+            else:
+                return 'youtube'
+        elif 'spotify.com' in url_lower:
+            return 'spotify'
+        elif 'bandcamp.com' in url_lower:
+            return 'bandcamp'
+        elif 'vimeo.com' in url_lower:
+            return 'vimeo'
+        else:
+            return 'unknown'
+
+    def get_audio_info(self, url: str) -> Optional[Dict]:
+        """Get audio info using python -m yt_dlp --dump-json"""
         try:
             cmd = [
                 self.python_exe, "-m", "yt_dlp",
@@ -298,45 +326,75 @@ class YouTubeMusicOpusDownloader:
             return None
                 
         except subprocess.TimeoutExpired:
-            error_msg = "Timeout while getting video info"
+            error_msg = "Timeout while getting audio info"
             print(f"[!] {error_msg}")
             return None
         except Exception as e:
-            error_msg = f"Error getting video info: {str(e)}"
+            error_msg = f"Error getting audio info: {str(e)}"
             print(f"[!] {error_msg}")
             return None
 
-    def extract_metadata(self, info: Dict) -> Dict:
-        """Extract relevant metadata from yt-dlp info"""
+    def extract_metadata(self, info: Dict, platform: str, url: str) -> Dict:
+        """Extract relevant metadata from yt-dlp info based on platform"""
         try:
-            # Try to get artist from multiple sources
-            artist = info.get('artist')
-            if not artist:
-                artist = info.get('uploader', 'Unknown Artist')
+            # Common fields
+            title = info.get('title', 'Unknown Title')
             
-            # Try to get album from multiple sources
-            album = info.get('album')
-            if not album:
-                album = info.get('playlist', 'Unknown Album')
+            # Platform-specific artist extraction
+            artist = 'Unknown Artist'
+            if platform == 'soundcloud':
+                # SoundCloud specific
+                artist = info.get('uploader', info.get('artist', info.get('creator', 'Unknown Artist')))
+                # Try to get from description or other fields
+                if artist == 'Unknown Artist' and info.get('description'):
+                    # Sometimes artist is in description
+                    desc = info.get('description', '')
+                    match = re.search(r'by\s+([^\n]+)', desc, re.IGNORECASE)
+                    if match:
+                        artist = match.group(1).strip()
+            else:
+                # YouTube and others
+                artist = info.get('artist', info.get('uploader', info.get('creator', 'Unknown Artist')))
+            
+            # Clean up artist name (remove " - Topic" from YouTube music channels)
+            if artist and ' - Topic' in artist:
+                artist = artist.replace(' - Topic', '')
+            
+            # Album/Playlist info
+            album = info.get('album', info.get('playlist', 'Unknown Album'))
+            
+            # Try to get better quality info
+            quality = "Unknown"
+            if info.get('abr'):  # Audio bitrate
+                quality = f"{info.get('abr')}kbps"
+            elif info.get('asr'):  # Audio sample rate
+                quality = f"{info.get('asr')}Hz"
             
             metadata = {
-                'title': info.get('title', 'Unknown Title'),
+                'title': title,
                 'artist': artist,
                 'album': album,
-                'track_number': info.get('track_number'),
-                'release_year': info.get('release_year'),
-                'release_date': info.get('release_date'),
-                'genre': info.get('genre'),
+                'track_number': info.get('track_number', ''),
+                'release_year': info.get('release_year', ''),
+                'release_date': info.get('release_date', ''),
+                'genre': info.get('genre', ''),
+                'platform': platform,
+                'quality': quality,
+                'duration': info.get('duration', 0),
+                'uploader': info.get('uploader', ''),
+                'webpage_url': info.get('webpage_url', url),
+                'extractor': info.get('extractor', platform)
             }
             
             # Clean up metadata values
             for key, value in metadata.items():
                 if value is None:
                     metadata[key] = ''
-                elif isinstance(value, (int, float)):
+                elif isinstance(value, (int, float)) and key not in ['duration']:
                     metadata[key] = str(value)
             
             return metadata
+            
         except Exception as e:
             print(f"[!] Error extracting metadata: {e}")
             return {
@@ -347,29 +405,66 @@ class YouTubeMusicOpusDownloader:
                 'release_year': '',
                 'release_date': '',
                 'genre': '',
+                'platform': platform,
+                'quality': 'Unknown',
+                'duration': 0,
+                'uploader': '',
+                'webpage_url': url,
+                'extractor': platform
             }
 
+    def get_best_audio_format(self, platform: str) -> str:
+        """Get the best audio format string based on platform"""
+        if platform == 'soundcloud':
+            # SoundCloud: Prefer original format, then best audio
+            return (
+                "soundcloud:original+bestaudio/"
+                "bestaudio[ext=m4a]/"
+                "bestaudio[ext=mp3]/"
+                "bestaudio"
+            )
+        elif platform == 'youtube_music':
+            # YouTube Music: Prefer Opus, then best audio
+            return (
+                "bestaudio[ext=webm][acodec=opus]/"
+                "bestaudio[ext=m4a]/"
+                "bestaudio"
+            )
+        elif platform == 'spotify':
+            # Spotify: Usually requires cookies, fallback to bestaudio
+            return "bestaudio"
+        else:
+            # Generic: Best audio in any format
+            return "bestaudio"
+
     def download_track(self, url: str, output_dir: Path) -> Tuple[bool, str]:
-        """Download a single track using python -m yt_dlp"""
+        """Download a single track using python -m yt_dlp (NO ALBUM ART)"""
         title = "Unknown Title"
         artist = "Unknown Artist"
         
         try:
-            # Get video info
-            print("[*] Getting video information...")
-            info = self.get_video_info(url)
+            # Detect platform
+            platform = self.detect_platform(url)
+            print(f"[*] Detected platform: {platform.capitalize()}")
+            
+            # Get audio info
+            print("[*] Getting audio information...")
+            info = self.get_audio_info(url)
             if not info:
-                error_msg = "Failed to get video information"
+                error_msg = "Failed to get audio information"
                 self.log_failed_download(url, title, artist, error_msg)
                 return False, error_msg
             
-            # Extract metadata
-            metadata = self.extract_metadata(info)
+            # Extract metadata with URL parameter
+            metadata = self.extract_metadata(info, platform, url)
             title = metadata['title']
             artist = metadata['artist']
             
-            # Create filename using ONLY the title
-            filename = self.create_safe_filename(title)
+            # Get best format for platform
+            format_spec = self.get_best_audio_format(platform)
+            
+            # Create filename using title and artist
+            filename = self.create_safe_filename(title, artist)
             output_file = output_dir / filename
             
             # Check if file already exists
@@ -379,18 +474,28 @@ class YouTubeMusicOpusDownloader:
                 return True, "File already exists"
             
             print(f"[*] Downloading: {artist} - {title}")
+            if metadata.get('quality'):
+                print(f"[*] Quality: {metadata['quality']}")
+            if metadata.get('duration'):
+                minutes = int(metadata['duration']) // 60
+                seconds = int(metadata['duration']) % 60
+                print(f"[*] Duration: {minutes}:{seconds:02d}")
             
-            # Build yt-dlp command using venv Python
+            # Build yt-dlp command for highest quality audio (NO ALBUM ART)
             cmd = [
                 self.python_exe, "-m", "yt_dlp",
-                "-f", "bestaudio[ext=webm][acodec=opus]/bestaudio",
+                "-f", format_spec,
                 "-x",
-                "--audio-format", "opus",
-                "--audio-quality", "0",
+                "--audio-format", "mp3",
+                "--audio-quality", "0",  # Best quality
                 "--no-playlist",
-                "--no-embed-thumbnail",
                 "--embed-metadata",
-                "-o", str(output_file.with_suffix('')),
+                "--no-embed-thumbnail",  # NO ALBUM ART
+                "--no-embed-chapters",
+                "--no-embed-info-json",
+                "--add-metadata",
+                "--prefer-ffmpeg",
+                "-o", str(output_file.with_suffix('')),  # Remove extension, yt-dlp will add proper one
                 url
             ]
             
@@ -399,6 +504,7 @@ class YouTubeMusicOpusDownloader:
                 cmd.extend(["--ffmpeg-location", self.ffmpeg_path])
             
             print(f"[*] Output file: {filename}")
+            print("[*] Album art: Disabled")
             
             # Run download
             proc = subprocess.Popen(
@@ -416,13 +522,30 @@ class YouTubeMusicOpusDownloader:
                 if line:
                     if '%' in line or '[download]' in line:
                         print(f"\r{line}", end='', flush=True)
-                    elif '[ExtractAudio]' in line or '[ffmpeg]' in line:
+                    elif '[ExtractAudio]' in line or '[ffmpeg]' in line or '[Metadata]' in line:
+                        print(f"\n{line}")
+                    elif '[soundcloud]' in line.lower():
                         print(f"\n{line}")
             
             proc.wait()
             
-            if proc.returncode == 0 and output_file.exists():
-                file_size = output_file.stat().st_size / (1024 * 1024)
+            # Check for downloaded file (might be .mp3 or .opus or .m4a)
+            possible_files = list(output_dir.glob(f"{output_file.stem}.*"))
+            downloaded_file = None
+            for f in possible_files:
+                if f.suffix.lower() in ['.mp3', '.opus', '.m4a', '.webm', '.ogg']:
+                    downloaded_file = f
+                    break
+            
+            if proc.returncode == 0 and downloaded_file and downloaded_file.exists():
+                # If not already mp3, rename to mp3
+                if downloaded_file.suffix.lower() != '.mp3':
+                    mp3_file = output_file.with_suffix('.mp3')
+                    shutil.move(str(downloaded_file), str(mp3_file))
+                    file_size = mp3_file.stat().st_size / (1024 * 1024)
+                else:
+                    file_size = downloaded_file.stat().st_size / (1024 * 1024)
+                
                 print(f"\n[+] Download complete: {filename} ({file_size:.1f} MB)")
                 return True, "Download successful"
             else:
@@ -434,15 +557,20 @@ class YouTubeMusicOpusDownloader:
         except Exception as e:
             error_msg = f"Unexpected error: {str(e)}"
             print(f"\n[!] {error_msg}")
+            print(f"[!] Traceback: {traceback.format_exc()}")
             self.log_failed_download(url, title, artist, error_msg)
             return False, error_msg
 
     def process_playlist(self, url: str):
-        """Process YouTube Music playlist"""
+        """Process playlist from any platform"""
         print(f"[*] Processing playlist: {url}")
         
+        # Detect platform
+        platform = self.detect_platform(url)
+        print(f"[*] Detected platform: {platform.capitalize()}")
+        
         try:
-            # Get playlist info using venv Python
+            # Get playlist info
             cmd = [
                 self.python_exe, "-m", "yt_dlp",
                 "--flat-playlist",
@@ -460,7 +588,13 @@ class YouTubeMusicOpusDownloader:
             if result.returncode == 0:
                 playlist_data = json.loads(result.stdout)
                 playlist_title = playlist_data.get('title', 'Playlist')
-                entries = playlist_data.get('entries', [])
+                
+                # For SoundCloud, entries might be in different format
+                entries = []
+                if 'entries' in playlist_data:
+                    entries = playlist_data['entries']
+                elif '_entries' in playlist_data:
+                    entries = playlist_data['_entries']
                 
                 print(f"[*] Playlist: {playlist_title}")
                 print(f"[*] Total tracks: {len(entries)}")
@@ -475,15 +609,28 @@ class YouTubeMusicOpusDownloader:
                 total = len(entries)
                 
                 for i, entry in enumerate(entries, 1):
-                    if not entry or not entry.get('id'):
+                    if not entry:
                         print(f"[!] Skipping invalid entry {i}")
+                        continue
+                    
+                    # Get track URL
+                    if 'url' in entry:
+                        track_url = entry['url']
+                    elif 'webpage_url' in entry:
+                        track_url = entry['webpage_url']
+                    elif 'id' in entry:
+                        # Construct URL based on platform
+                        if platform == 'soundcloud':
+                            track_url = f"https://soundcloud.com/{entry['id']}"
+                        else:
+                            track_url = f"https://youtube.com/watch?v={entry['id']}"
+                    else:
+                        print(f"[!] Skipping entry {i} - no URL found")
                         continue
                     
                     print(f"\n[*] Track {i}/{total}")
                     
-                    video_url = f"https://music.youtube.com/watch?v={entry['id']}"
-                    
-                    success, _ = self.download_track(video_url, playlist_dir)
+                    success, _ = self.download_track(track_url, playlist_dir)
                     if success:
                         successful += 1
                     
@@ -504,34 +651,37 @@ class YouTubeMusicOpusDownloader:
             return False
 
     def process_url(self, url: str) -> bool:
-        """Process a YouTube Music URL"""
+        """Process URL from any platform"""
         url_lower = url.lower()
         
-        # Accept both music.youtube.com and youtube.com URLs
-        if 'youtube.com' not in url_lower and 'youtu.be' not in url_lower:
-            print("[*] Please provide a valid YouTube URL")
+        # Check if it's a valid URL
+        if not (url.startswith('http://') or url.startswith('https://')):
+            print("[*] Please provide a valid URL (starting with http:// or https://)")
             return False
         
         try:
-            if 'playlist' in url_lower or '&list=' in url_lower:
+            # Check if it's a playlist
+            if any(x in url_lower for x in ['playlist', 'set/', 'album', 'list=']):
+                print("[*] Detected playlist/set/album")
                 return self.process_playlist(url)
             else:
-                print(f"[*] Processing single track: {url}")
+                print("[*] Detected single track")
                 success, _ = self.download_track(url, self.output_dir)
                 return success
+                
         except Exception as e:
             print(f"[!] Error processing URL: {e}")
             return False
 
 def main():
-    parser = argparse.ArgumentParser(description='YouTube Music Downloader - Pure Opus Edition')
-    parser.add_argument('url', nargs='?', help='YouTube Music URL')
+    parser = argparse.ArgumentParser(description='Universal Audio Downloader - Highest Quality (No Album Art)')
+    parser.add_argument('url', nargs='?', help='Audio URL (YouTube Music, SoundCloud, etc.)')
     parser.add_argument('--file', '-f', help='Text file containing multiple URLs')
     parser.add_argument('--retry', '-r', action='store_true', help='Retry failed downloads from log')
     
     args = parser.parse_args()
     
-    downloader = YouTubeMusicOpusDownloader()
+    downloader = UniversalAudioDownloader()
     
     # Check if there are existing failed downloads
     if downloader.failed_downloads_file.exists():
@@ -608,7 +758,7 @@ def main():
         
         while True:
             try:
-                url = input("\n[*] Enter YouTube Music URL: ").strip()
+                url = input("\n[*] Enter Audio URL (YouTube Music/SoundCloud/etc): ").strip()
                 
                 if url.lower() in ['exit', 'quit', 'q']:
                     if downloader.failed_downloads:
