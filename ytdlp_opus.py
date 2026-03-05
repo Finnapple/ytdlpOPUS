@@ -20,40 +20,95 @@ class YouTubeMusicOpusDownloader:
         self.output_dir = script_dir / "YouTube Music Downloads"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Get the Python executable path (for virtual environment)
+        self.python_exe = self.get_venv_python()
+        
         # Initialize failed downloads log
         self.failed_downloads = []
         self.failed_downloads_file = script_dir / "failed_downloads.txt"
         
-        # Check if yt-dlp is installed
+        # Check if yt-dlp is installed in venv
         if not self.check_ytdlp_installed():
-            print("[*] yt-dlp is not installed. Please install it with: pip install yt-dlp")
-            sys.exit(1)
+            print("[*] yt-dlp is not installed. Installing now...")
+            self.install_ytdlp()
         
-        # Check if ffmpeg is installed
-        if not self.check_ffmpeg_installed():
-            print("[*] ffmpeg is not installed. Please install ffmpeg:")
-            print("[*] Windows: https://ffmpeg.org/download.html")
-            print("[*] Linux: sudo apt install ffmpeg")
-            print("[*] macOS: brew install ffmpeg")
-            sys.exit(1)
+        # Check if ffmpeg is available (either in PATH or in script folder)
+        self.ffmpeg_path = self.find_ffmpeg()
+        if not self.ffmpeg_path:
+            print("[*] ffmpeg not found. Some features may not work properly.")
+            print("[*] Please place ffmpeg.exe in the same folder as this script")
+    
+    def get_venv_python(self) -> str:
+        """Get Python executable from virtual environment if it exists (silent)"""
+        script_dir = Path(__file__).parent.absolute()
+        
+        # Check for venv in common locations
+        venv_paths = [
+            script_dir / "venv" / "Scripts" / "python.exe",  # Windows venv
+            script_dir / "venv" / "bin" / "python",          # Linux/Mac venv
+            script_dir / ".venv" / "Scripts" / "python.exe", # Alternative Windows
+            script_dir / ".venv" / "bin" / "python",         # Alternative Linux/Mac
+            script_dir / "ytdlp" / "Scripts" / "python.exe", # From previous setup
+            script_dir / "ytdlp" / "bin" / "python",         # From previous setup
+        ]
+        
+        for venv_python in venv_paths:
+            if venv_python.exists():
+                # REMOVED: print(f"[*] Using venv Python: {venv_python}")
+                return str(venv_python)
+        
+        # If no venv found, use system Python
+        return sys.executable
+    
+    def find_ffmpeg(self) -> Optional[str]:
+        """Find ffmpeg in PATH or in script folder"""
+        script_dir = Path(__file__).parent.absolute()
+        
+        # Check in script folder first
+        ffmpeg_in_script = script_dir / "ffmpeg.exe"
+        if ffmpeg_in_script.exists():
+            return str(ffmpeg_in_script)
+        
+        # Check in PATH
+        ffmpeg_in_path = shutil.which("ffmpeg")
+        if ffmpeg_in_path:
+            return ffmpeg_in_path
+        
+        # Check in venv folder
+        venv_ffmpeg = script_dir / "venv" / "ffmpeg.exe"
+        if venv_ffmpeg.exists():
+            return str(venv_ffmpeg)
+        
+        return None
     
     def check_ytdlp_installed(self) -> bool:
-        """Check if yt-dlp is installed and available"""
+        """Check if yt-dlp is installed as a Python module in venv"""
         try:
-            subprocess.run(["yt-dlp", "--version"], 
-                          capture_output=True, check=True, text=True)
+            subprocess.run(
+                [self.python_exe, "-m", "yt_dlp", "--version"], 
+                capture_output=True, 
+                check=True, 
+                text=True,
+                timeout=10
+            )
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except:
             return False
     
-    def check_ffmpeg_installed(self) -> bool:
-        """Check if ffmpeg is installed"""
+    def install_ytdlp(self):
+        """Install yt-dlp using pip in venv"""
         try:
-            subprocess.run(["ffmpeg", "-version"], 
-                          capture_output=True, check=True, text=True)
-            return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+            print("[*] Installing yt-dlp...")
+            subprocess.run(
+                [self.python_exe, "-m", "pip", "install", "--upgrade", "yt-dlp"],
+                check=True,
+                timeout=60
+            )
+            print("[+] yt-dlp installed successfully!")
+        except Exception as e:
+            print(f"[!] Failed to install yt-dlp: {e}")
+            print("[*] Please install manually: python -m pip install yt-dlp")
+            sys.exit(1)
     
     def clear_screen(self):
         """Clear the screen but keep the header"""
@@ -77,6 +132,8 @@ class YouTubeMusicOpusDownloader:
         print("[*] Supports: Single tracks, Playlists, and Albums")
         print("[*] Paste YouTube Music URLs. Type 'exit' to quit.")
         print(f"[*] Downloading to: {self.output_dir}")
+        if self.ffmpeg_path:
+            print(f"[*] FFmpeg: Found")
         print("-" * 50)
     
     def log_failed_download(self, url: str, title: str, artist: str, error: str):
@@ -220,10 +277,10 @@ class YouTubeMusicOpusDownloader:
         return name
 
     def get_video_info(self, url: str) -> Optional[Dict]:
-        """Get video info using yt-dlp --dump-json"""
+        """Get video info using python -m yt_dlp --dump-json"""
         try:
             cmd = [
-                "yt-dlp",
+                self.python_exe, "-m", "yt_dlp",
                 "--dump-json",
                 "--no-playlist",
                 url
@@ -292,315 +349,8 @@ class YouTubeMusicOpusDownloader:
                 'genre': '',
             }
 
-    def download_with_ytdlp_simple(self, url: str, output_file: Path, metadata: Dict) -> bool:
-        """Download using simplified yt-dlp command with title only filename"""
-        try:
-            print(f"[*] Downloading with simplified command...")
-            
-            # Create a simple output template using only the title
-            output_template = f"%(title)s.%(ext)s"
-            
-            # Build the yt-dlp command
-            cmd = [
-                "yt-dlp",
-                "-f", "bestaudio[ext=webm][acodec=opus]/bestaudio",
-                "--no-playlist",
-                "--no-embed-thumbnail",
-                "--restrict-filenames",
-                "-o", output_template,
-                url
-            ]
-            
-            # Change to output directory
-            original_cwd = os.getcwd()
-            output_dir = output_file.parent
-            output_dir.mkdir(parents=True, exist_ok=True)
-            os.chdir(output_dir)
-            
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-                
-                # Stream output
-                output_lines = []
-                for line in proc.stdout:
-                    line = line.strip()
-                    output_lines.append(line)
-                    if line and ('%' in line or '[download]' in line or '[info]' in line):
-                        print(f"[*] {line}")
-                
-                proc.wait()
-                
-                if proc.returncode == 0:
-                    # Find the downloaded file
-                    downloaded_files = list(output_dir.glob("*.webm")) + list(output_dir.glob("*.opus"))
-                    
-                    for downloaded_file in downloaded_files:
-                        if downloaded_file.exists():
-                            # Check if this is the file we want
-                            expected_filename = self.create_safe_filename(metadata['title'])
-                            if downloaded_file.name.lower() == expected_filename.lower():
-                                # File already has correct name
-                                file_size = downloaded_file.stat().st_size / (1024 * 1024)
-                                print(f"[+] Download complete: {file_size:.1f} MB")
-                                return True
-                            else:
-                                # Rename to our target filename
-                                shutil.move(str(downloaded_file), str(output_file))
-                                file_size = output_file.stat().st_size / (1024 * 1024)
-                                print(f"[+] Download complete: {file_size:.1f} MB")
-                                return True
-                
-                # If we get here, download failed
-                error_output = "\n".join(output_lines[-5:])  # Last 5 lines of output
-                print(f"[!] Download failed. Output: {error_output}")
-                return False
-                
-            except subprocess.TimeoutExpired:
-                print("[!] Download timeout expired")
-                return False
-            finally:
-                os.chdir(original_cwd)
-            
-        except Exception as e:
-            error_msg = f"Error in yt-dlp download: {str(e)}"
-            print(f"[!] {error_msg}")
-            return False
-
-    def download_direct_opus(self, url: str, output_file: Path, metadata: Dict) -> bool:
-        """Download using direct Opus format with simple filename"""
-        try:
-            # First get the exact format
-            cmd_info = [
-                "yt-dlp",
-                "-f", "bestaudio[ext=webm][acodec=opus]",
-                "--get-url",
-                "--no-playlist",
-                url
-            ]
-            
-            result = subprocess.run(
-                cmd_info,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            if result.returncode != 0:
-                error_msg = "Could not get direct Opus URL"
-                if result.stderr:
-                    error_msg += f": {result.stderr[:100]}"
-                print(f"[!] {error_msg}")
-                return False
-            
-            direct_url = result.stdout.strip()
-            if not direct_url:
-                print("[!] Empty direct URL received")
-                return False
-            
-            print(f"[*] Downloading direct Opus stream...")
-            
-            # Ensure output directory exists
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Download using ffmpeg directly
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-i", direct_url,
-                "-c", "copy",
-                "-vn",
-                "-y",
-                str(output_file)
-            ]
-            
-            proc = subprocess.run(
-                ffmpeg_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            
-            if proc.returncode == 0 and output_file.exists():
-                file_size = output_file.stat().st_size / (1024 * 1024)
-                print(f"[+] Direct Opus download complete: {file_size:.1f} MB")
-                return True
-            else:
-                error_msg = "Direct download failed"
-                if proc.stderr:
-                    error_msg += f": {proc.stderr[:200]}"
-                print(f"[!] {error_msg}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            print("[!] Direct download timeout expired")
-            return False
-        except Exception as e:
-            error_msg = f"Direct Opus download error: {str(e)}"
-            print(f"[!] {error_msg}")
-            return False
-
-    def download_and_convert(self, url: str, output_file: Path, metadata: Dict) -> bool:
-        """Download using yt-dlp and convert to Opus with simple filename"""
-        try:
-            print(f"[*] Downloading and converting to Opus...")
-            
-            # Ensure output directory exists
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Use temporary filename
-            temp_filename = f"temp_{int(time.time())}"
-            temp_output = output_file.parent / temp_filename
-            
-            cmd = [
-                "yt-dlp",
-                "-f", "bestaudio[ext=webm][acodec=opus]/bestaudio",
-                "-x",
-                "--audio-format", "opus",
-                "--audio-quality", "0",
-                "--no-playlist",
-                "--no-overwrites",
-                "--no-embed-thumbnail",
-                "--no-embed-metadata",
-                "--restrict-filenames",
-                "--output", str(temp_output),
-                url
-            ]
-            
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            # Stream output
-            output_lines = []
-            for line in proc.stdout:
-                line = line.strip()
-                output_lines.append(line)
-                if line and ('%' in line or '[download]' in line or '[info]' in line):
-                    print(f"[*] {line}")
-            
-            proc.wait()
-            
-            if proc.returncode != 0:
-                error_output = "\n".join(output_lines[-5:])
-                print(f"[!] Download failed with code {proc.returncode}. Output: {error_output}")
-                return False
-            
-            # Check for downloaded file
-            for ext in ['.opus', '.webm']:
-                possible_file = temp_output.with_suffix(ext)
-                if possible_file.exists():
-                    shutil.move(str(possible_file), str(output_file))
-                    file_size = output_file.stat().st_size / (1024 * 1024)
-                    print(f"[+] Download complete: {file_size:.1f} MB")
-                    return True
-            
-            print("[!] Downloaded file not found after conversion")
-            return False
-            
-        except subprocess.TimeoutExpired:
-            print("[!] Conversion download timeout expired")
-            return False
-        except Exception as e:
-            error_msg = f"Conversion download error: {str(e)}"
-            print(f"[!] {error_msg}")
-            return False
-
-    def add_metadata_to_opus(self, opus_file: Path, metadata: Dict) -> bool:
-        """Add metadata to Opus file using ffmpeg"""
-        try:
-            if not opus_file.exists():
-                print("[!] Cannot add metadata: file does not exist")
-                return False
-            
-            temp_file = opus_file.with_suffix('.temp.opus')
-            
-            # Build metadata arguments
-            metadata_args = []
-            
-            # Add artist metadata
-            if metadata.get('artist'):
-                metadata_args.extend(['-metadata', f'artist={metadata["artist"]}'])
-            
-            # Add title metadata
-            if metadata.get('title'):
-                metadata_args.extend(['-metadata', f'title={metadata["title"]}'])
-            
-            # Add album metadata
-            if metadata.get('album'):
-                metadata_args.extend(['-metadata', f'album={metadata["album"]}'])
-            
-            # Add track number
-            if metadata.get('track_number'):
-                metadata_args.extend(['-metadata', f'track={metadata["track_number"]}'])
-            
-            # Add date
-            if metadata.get('release_year'):
-                metadata_args.extend(['-metadata', f'date={metadata["release_year"]}'])
-            elif metadata.get('release_date'):
-                metadata_args.extend(['-metadata', f'date={metadata["release_date"]}'])
-            
-            # Add genre
-            if metadata.get('genre'):
-                metadata_args.extend(['-metadata', f'genre={metadata["genre"]}'])
-            
-            if not metadata_args:
-                print("[*] No metadata to add")
-                return True
-            
-            # Build ffmpeg command
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-i", str(opus_file),
-                "-c", "copy",
-                "-map_metadata", "0",
-            ]
-            ffmpeg_cmd.extend(metadata_args)
-            ffmpeg_cmd.extend([
-                "-y",
-                str(temp_file)
-            ])
-            
-            # Run ffmpeg
-            result = subprocess.run(
-                ffmpeg_cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            if result.returncode == 0 and temp_file.exists():
-                # Replace original with metadata-enhanced file
-                opus_file.unlink()
-                temp_file.rename(opus_file)
-                print("[+] Metadata added successfully")
-                return True
-            else:
-                error_msg = "Failed to add metadata"
-                if result.stderr:
-                    error_msg += f": {result.stderr[:200]}"
-                print(f"[!] {error_msg}")
-                if temp_file.exists():
-                    temp_file.unlink()
-                return False
-                
-        except Exception as e:
-            error_msg = f"Error adding metadata: {str(e)}"
-            print(f"[!] {error_msg}")
-            return False
-
     def download_track(self, url: str, output_dir: Path) -> Tuple[bool, str]:
-        """Main function to download a single track"""
+        """Download a single track using python -m yt_dlp"""
         title = "Unknown Title"
         artist = "Unknown Artist"
         
@@ -618,7 +368,7 @@ class YouTubeMusicOpusDownloader:
             title = metadata['title']
             artist = metadata['artist']
             
-            # Create filename using ONLY the title (no track numbers)
+            # Create filename using ONLY the title
             filename = self.create_safe_filename(title)
             output_file = output_dir / filename
             
@@ -629,51 +379,61 @@ class YouTubeMusicOpusDownloader:
                 return True, "File already exists"
             
             print(f"[*] Downloading: {artist} - {title}")
-            print(f"[*] Output filename: {filename}")
             
-            # Try different download methods
-            success = False
-            error_messages = []
+            # Build yt-dlp command using venv Python
+            cmd = [
+                self.python_exe, "-m", "yt_dlp",
+                "-f", "bestaudio[ext=webm][acodec=opus]/bestaudio",
+                "-x",
+                "--audio-format", "opus",
+                "--audio-quality", "0",
+                "--no-playlist",
+                "--no-embed-thumbnail",
+                "--embed-metadata",
+                "-o", str(output_file.with_suffix('')),
+                url
+            ]
             
-            # Try simplified yt-dlp command first
-            if not success:
-                success = self.download_with_ytdlp_simple(url, output_file, metadata)
-                if not success:
-                    error_messages.append("Method 1 (yt-dlp simple) failed")
+            # Add ffmpeg location if found
+            if self.ffmpeg_path:
+                cmd.extend(["--ffmpeg-location", self.ffmpeg_path])
             
-            # If that fails, try direct Opus download
-            if not success:
-                success = self.download_direct_opus(url, output_file, metadata)
-                if not success:
-                    error_messages.append("Method 2 (direct Opus) failed")
+            print(f"[*] Output file: {filename}")
             
-            # If that also fails, try conversion method
-            if not success:
-                success = self.download_and_convert(url, output_file, metadata)
-                if not success:
-                    error_messages.append("Method 3 (conversion) failed")
+            # Run download
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
             
-            if success and output_file.exists():
-                # Add metadata (non-critical, continue even if it fails)
-                try:
-                    self.add_metadata_to_opus(output_file, metadata)
-                except Exception as e:
-                    print(f"[*] Warning: Could not add metadata: {e}")
-                
-                # Final verification
+            # Stream output
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    if '%' in line or '[download]' in line:
+                        print(f"\r{line}", end='', flush=True)
+                    elif '[ExtractAudio]' in line or '[ffmpeg]' in line:
+                        print(f"\n{line}")
+            
+            proc.wait()
+            
+            if proc.returncode == 0 and output_file.exists():
                 file_size = output_file.stat().st_size / (1024 * 1024)
-                print(f"[+] Successfully downloaded: {filename} ({file_size:.1f} MB)")
+                print(f"\n[+] Download complete: {filename} ({file_size:.1f} MB)")
                 return True, "Download successful"
             else:
-                error_msg = f"All download methods failed. Errors: {', '.join(error_messages)}"
-                print(f"[!] Failed to download: {title}")
+                error_msg = f"Download failed with code {proc.returncode}"
+                print(f"\n[!] {error_msg}")
                 self.log_failed_download(url, title, artist, error_msg)
                 return False, error_msg
                 
         except Exception as e:
-            error_msg = f"Unexpected error in download_track: {str(e)}"
-            print(f"[!] {error_msg}")
-            print(f"[!] Traceback: {traceback.format_exc()[:500]}")
+            error_msg = f"Unexpected error: {str(e)}"
+            print(f"\n[!] {error_msg}")
             self.log_failed_download(url, title, artist, error_msg)
             return False, error_msg
 
@@ -681,13 +441,10 @@ class YouTubeMusicOpusDownloader:
         """Process YouTube Music playlist"""
         print(f"[*] Processing playlist: {url}")
         
-        # Clear previous failed downloads for this playlist
-        original_failed_count = len(self.failed_downloads)
-        
         try:
-            # Get playlist info
+            # Get playlist info using venv Python
             cmd = [
-                "yt-dlp",
+                self.python_exe, "-m", "yt_dlp",
                 "--flat-playlist",
                 "--dump-single-json",
                 url
@@ -729,8 +486,6 @@ class YouTubeMusicOpusDownloader:
                     success, _ = self.download_track(video_url, playlist_dir)
                     if success:
                         successful += 1
-                    else:
-                        print(f"[!] Failed to download track {i}")
                     
                     # Small delay between downloads
                     if i < total:
@@ -739,63 +494,33 @@ class YouTubeMusicOpusDownloader:
                 print(f"\n[*] Playlist download completed!")
                 print(f"[*] Successful: {successful}/{total} tracks")
                 
-                # Show failed downloads for this playlist
-                new_failed_count = len(self.failed_downloads) - original_failed_count
-                if new_failed_count > 0:
-                    self.show_failed_downloads_summary(f"Playlist: {playlist_title}")
-                
                 return successful > 0
             else:
-                error_msg = "Failed to get playlist info"
-                print(f"[!] {error_msg}")
+                print("[!] Failed to get playlist info")
                 return False
                 
-        except subprocess.TimeoutExpired:
-            error_msg = "Timeout while getting playlist info"
-            print(f"[!] {error_msg}")
-            return False
         except Exception as e:
-            error_msg = f"Error processing playlist: {str(e)}"
-            print(f"[!] {error_msg}")
+            print(f"[!] Error processing playlist: {e}")
             return False
-
-    def process_album(self, url: str):
-        """Process YouTube Music album"""
-        print(f"[*] Processing album: {url}")
-        
-        # Use playlist processing for albums
-        return self.process_playlist(url)
-
-    def process_single_track(self, url: str) -> bool:
-        """Process a single YouTube Music track"""
-        print(f"[*] Processing single track: {url}")
-        success, error_msg = self.download_track(url, self.output_dir)
-        
-        if not success:
-            self.show_failed_downloads_summary("Single track")
-        
-        return success
 
     def process_url(self, url: str) -> bool:
         """Process a YouTube Music URL"""
         url_lower = url.lower()
         
         # Accept both music.youtube.com and youtube.com URLs
-        if 'youtube.com' not in url_lower:
+        if 'youtube.com' not in url_lower and 'youtu.be' not in url_lower:
             print("[*] Please provide a valid YouTube URL")
             return False
         
         try:
-            if 'playlist' in url_lower:
+            if 'playlist' in url_lower or '&list=' in url_lower:
                 return self.process_playlist(url)
-            elif 'album' in url_lower or 'release' in url_lower:
-                return self.process_album(url)
             else:
-                return self.process_single_track(url)
+                print(f"[*] Processing single track: {url}")
+                success, _ = self.download_track(url, self.output_dir)
+                return success
         except Exception as e:
-            error_msg = f"Error processing URL: {str(e)}"
-            print(f"[!] {error_msg}")
-            self.log_failed_download(url, "Unknown", "Unknown", error_msg)
+            print(f"[!] Error processing URL: {e}")
             return False
 
 def main():
@@ -853,25 +578,29 @@ def main():
     if args.file:
         # Process multiple URLs from a file
         try:
-            with open(args.file, 'r') as f:
-                urls = [line.strip() for line in f if line.strip()]
+            with open(args.file, 'r', encoding='utf-8') as f:
+                urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
             
-            for url in urls:
+            print(f"[*] Found {len(urls)} URLs in file")
+            
+            for i, url in enumerate(urls, 1):
                 print(f"\n{'='*50}")
+                print(f"[*] URL {i}/{len(urls)}")
+                print(f"{'='*50}")
                 downloader.process_url(url)
-                print(f"{'='*50}\n")
                 
         except FileNotFoundError:
-            print(f"[*] File not found: {args.file}")
+            print(f"[!] File not found: {args.file}")
         except Exception as e:
-            print(f"[*] Error processing file: {e}")
+            print(f"[!] Error processing file: {e}")
     
     elif args.url:
         # Process a single URL
         downloader.process_url(args.url)
         
-        # Show final summary
-        downloader.show_failed_downloads_summary("Final summary")
+        # Show failed downloads summary
+        if downloader.failed_downloads:
+            downloader.show_failed_downloads_summary()
     
     else:
         # Interactive mode
@@ -882,9 +611,9 @@ def main():
                 url = input("\n[*] Enter YouTube Music URL: ").strip()
                 
                 if url.lower() in ['exit', 'quit', 'q']:
-                    # Show final summary before exiting
                     if downloader.failed_downloads:
                         downloader.show_failed_downloads_summary("Before exit")
+                    print("[*] Goodbye!")
                     break
                 
                 if url.lower() in ['clear', 'cls']:
@@ -892,12 +621,10 @@ def main():
                     continue
                 
                 if url.lower() == 'failed':
-                    # Show failed downloads
                     downloader.show_failed_downloads_summary()
                     continue
                 
                 if url.lower() == 'retry':
-                    # Retry failed downloads
                     downloader.retry_failed_downloads()
                     continue
                 
@@ -908,12 +635,9 @@ def main():
                 
             except KeyboardInterrupt:
                 print("\n[*] Exiting...")
-                # Show final summary
-                if downloader.failed_downloads:
-                    downloader.show_failed_downloads_summary("Interrupted")
                 break
             except Exception as e:
-                print(f"[*] Error: {e}")
+                print(f"[!] Error: {e}")
 
 if __name__ == "__main__":
     main()
