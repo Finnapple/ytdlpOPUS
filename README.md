@@ -1,26 +1,139 @@
-# ytdlpOPUS
-A lightweight, command-line YouTube Music downloader that preserves original Opus audio quality without embedded album art. Downloads tracks, playlists, and albums with clean metadata.
+# 🎵 ytdlpOPUS — YouTube Music Downloader
 
-# Setup Installation
-
-## Requirements
-1. Python 3.8+ installed and available in your PATH  
-2. FFmpeg installed on your system  
-
-## Windows
-1. Simply run `setup.bat`  
-2. The script will automatically create a virtual environment and install all required packages.
-
-## Linux / macOS
-1. Open a terminal in the project directory  
-2. Make the setup script executable: `chmod +x setup.sh`  
-3. Run the installer: `./setup.sh`  
-
-> **Once the setup is complete, you're good to go.**  
-> **Enjoy downloading YouTube Music in pure Opus format**  
+> A lightweight command-line downloader that preserves original **Opus audio quality** from YouTube Music — with clean metadata, no bloat.
 
 ---
 
-## Album Art
-You can use `embedder.py` to embed album art into your downloaded Opus files after downloading.  
-This keeps your tracks organized and visually consistent in music players.
+## ✨ Features
+
+- 🎧 Downloads in **native Opus format** — no re-encoding, no quality loss
+- 📀 Supports **tracks, playlists, and albums**
+- 🏷️ Clean, accurate **metadata** on every download
+- 🖼️ Optional **album art embedding** via `embedder.py`
+- 🧹 Built-in **file cleanup** via `delete.py`
+- 🐧 Cross-platform — works on **Windows, Linux, and macOS**
+- 🔰 Simple terminal interface — no GUI needed
+
+---
+
+## 📋 Requirements
+
+- Python **3.8+** (added to PATH)
+- [FFmpeg](https://ffmpeg.org/download.html) installed on your system
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/Finnapple/ytdlpOPUS.git
+cd ytdlpOPUS
+```
+
+### 2. Run the installer
+
+**Windows:**
+```bash
+setup.bat
+```
+
+**Linux / macOS:**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+> The setup script automatically creates a virtual environment and installs all required packages.
+
+### 3. Start downloading
+
+**Windows:**
+```bash
+ytdlp_opus.bat
+```
+
+**Linux / macOS:**
+```bash
+python ytdlp_opus.py
+```
+
+Paste your YouTube Music URL and the downloader handles the rest!
+
+---
+
+## 🖼️ Embedding Album Art
+
+Downloaded Opus files don't include album art by default — keeping them lightweight and clean. To embed artwork after downloading, run:
+
+**Windows:**
+```bash
+embedder.bat
+```
+
+**Or directly:**
+```bash
+python embedder.py
+```
+
+This keeps your library visually consistent in any music player.
+
+---
+
+## 🗑️ Cleaning Up Files
+
+To delete downloaded files or temp data:
+
+**Windows:**
+```bash
+delete.bat
+```
+
+**Or directly:**
+```bash
+python delete.py
+```
+
+---
+
+## 🗂️ Project Structure
+
+```
+ytdlpOPUS/
+├── ytdlp_opus.py    # Core downloader script
+├── ytdlp_opus.bat   # Windows launcher
+├── embedder.py      # Album art embedder
+├── embedder.bat     # Windows launcher for embedder
+├── delete.py        # File cleanup script
+├── delete.bat       # Windows launcher for cleanup
+├── setup.bat        # Windows installer
+└── setup.sh         # Linux/macOS installer
+```
+
+---
+
+## ❓ Why Opus?
+
+Opus is the native audio format used by YouTube Music. Downloading in Opus means:
+
+- ✅ **No re-encoding** — the file is saved exactly as streamed
+- ✅ **No quality loss** — what you hear on YouTube Music is what you get
+- ✅ **Smaller file sizes** compared to equivalent MP3 quality
+
+---
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome!  
+Feel free to open an [issue](https://github.com/Finnapple/ytdlpOPUS/issues) if you run into problems or have ideas.
+
+---
+
+## 📄 License
+
+This project is open source. See the repository for details.
+
+---
+
+<p align="center">Made with ❤️ by <a href="https://github.com/Finnapple">Finnapple</a></p>
